@@ -4,8 +4,19 @@ import json
 from github import Github
 import os
 from datetime import datetime, timedelta
+from flask import Flask
+import threading
 
-# Config - Koyeb Environment Variables ကနေ ဖတ်ပါမယ်
+# Flask app for Render port binding
+app = Flask('')
+@app.route('/')
+def home():
+    return "Bot is running!"
+
+def run_flask():
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+
+# Bot Logic
 API_TOKEN = os.getenv('BOT_TOKEN')
 GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
 REPO_NAME = 'jasonnice334-a11y/key.txt'
@@ -29,7 +40,7 @@ def start(message):
     btn_list = types.KeyboardButton('/list')
     btn_gen = types.KeyboardButton('Generate Key 🔑')
     markup.add(btn_list, btn_gen)
-    bot.send_message(message.chat.id, "🌟 Admin Panel\n\nChoose an option:", reply_markup=markup)
+    bot.send_message(message.chat.id, "🌟 Admin Panel is Online!", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: m.text == 'Generate Key 🔑')
 def choose_time(message):
@@ -70,4 +81,6 @@ def list_clients(message):
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ Error: {e}")
 
-bot.polling()
+if __name__ == "__main__":
+    threading.Thread(target=run_flask).start()
+    bot.polling(none_stop=True)
