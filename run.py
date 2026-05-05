@@ -2,6 +2,7 @@ import telebot
 from telebot import types
 import json
 import os
+import base64
 from datetime import datetime, timedelta
 
 # --- Configurations ---
@@ -13,104 +14,109 @@ DB_FILE = 'database.json'
 bot = telebot.TeleBot(API_TOKEN)
 user_process = {}
 
+# --- Database Functions ---
 def load_db():
     if not os.path.exists(DB_FILE):
-        initial = {"resellers": {}, "generated_keys": {}, "users": {}}
-        with open(DB_FILE, 'w') as f: json.dump(initial, f)
+        return {"resellers": {}, "generated_keys": {}, "users": {}}
     with open(DB_FILE, 'r') as f:
         try: return json.load(f)
         except: return {"resellers": {}, "generated_keys": {}, "users": {}}
 
 def save_db(data):
-    with open(DB_FILE, 'w') as f: json.dump(data, f, indent=4)
+    with open(DB_FILE, 'w') as f:
+        json.dump(data, f, indent=4)
 
-# --- ID စစ်ဆေးရန် ---
-@bot.message_handler(commands=['id'])
-def get_id(message):
-    bot.reply_to(message, f"🆔 သင့်ရဲ့ Telegram ID: `{message.from_user.id}`", parse_mode="Markdown")
+# --- Key Generation Logic (Your Specific Format) ---
+def create_expiration_string(days):
+    now = datetime.now()
+    expire = now + timedelta(days=days)
+    # မိနစ်-နာရီ-ရက်-လ-ခုနှစ် ပုံစံအတိုင်း ပြန်ပေးခြင်း
+    return expire.strftime("%M-%H-%d-%m-%Y")
 
-# --- Start Handler ---
+# --- Commands ---
 @bot.message_handler(commands=['start'])
 def start(message):
-    user_id = str(message.from_user.id)
+    uid = str(message.from_user.id)
     db = load_db()
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     
-    if int(user_id) == ADMIN_ID:
-        btn1, btn2 = types.KeyboardButton("Key ထုတ်မည် 🔑"), types.KeyboardButton("Reseller စာရင်း 📋")
-        markup.add(btn1, btn2)
-        bot.send_message(message.chat.id, f"🌟 **Admin Dashboard**\nAdmin: `{ADMIN_NAME}`", reply_markup=markup, parse_mode="Markdown")
-    elif user_id in db["resellers"]:
-        points = db["resellers"][user_id]["points"]
-        btn1, btn2 = types.KeyboardButton("Key ထုတ်မည် 🔑"), types.KeyboardButton("Point စစ်မည် 💰")
-        markup.add(btn1, btn2)
-        bot.send_message(message.chat.id, f"👋 **Reseller Panel**\nလက်ရှိ Point: `{points}`", reply_markup=markup, parse_mode="Markdown")
+    if int(uid) == ADMIN_ID:
+        markup.add("Key ထုတ်မည် 🔑", "Reseller စာရင်း 📋", "Key စာရင်း 🔑")
+        bot.send_message(message.chat.id, f"🌟 **Admin Panel**\nAdmin: `{ADMIN_NAME}`", reply_markup=markup)
+    elif uid in db["resellers"]:
+        markup.add("Key ထုတ်မည် 🔑", "Point စစ်မည် 💰")
+        bot.send_message(message.chat.id, f"👋 **Reseller Panel**\nPoints: `{db['resellers'][uid]['points']}`", reply_markup=markup)
     else:
-        expiry = db["users"].get(user_id, "သက်တမ်းမရှိသေးပါ")
-        bot.send_message(message.chat.id, f"👤 **User Status**\nသက်တမ်းကုန်ရက်: `{expiry}`\n\nKey ရှိပါက ရိုက်ထည့်၍ Activate လုပ်နိုင်ပါသည်။", parse_mode="Markdown")
+        expiry = db["users"].get(uid, "သက်တမ်းမရှိသေးပါ")
+        bot.send_message(message.chat.id, f"👤 **User Status**\nExpiry: `{expiry}`\n\nKey ကို ရိုက်ထည့်၍ Activate လုပ်နိုင်ပါသည်။")
 
-# --- Admin: Add Reseller (/add ID Point) ---
-@bot.message_handler(commands=['add'])
-def add_res(message):
-    if message.from_user.id != ADMIN_ID: return
-    try:
-        args = message.text.split()
-        db = load_db()
-        db["resellers"][args[1]] = {"points": int(args[2])}
-        save_db(db)
-        bot.send_message(message.chat.id, f"✅ ID `{args[1]}` ကို Point `{args[2]}` ထည့်ပြီးပါပြီ။")
-    except: bot.send_message(message.chat.id, "💡 Format: `/add [ID] [Points]`")
-
-# --- Key Generation Flow ---
+# --- Generate Key Steps ---
 @bot.message_handler(func=lambda m: m.text == "Key ထုတ်မည် 🔑")
-def ask_time(message):
-    user_id = str(message.from_user.id)
+def handle_gen_key(message):
+    uid = str(message.from_user.id)
     db = load_db()
-    if int(user_id) != ADMIN_ID and user_id not in db["resellers"]: return
+    if int(uid) != ADMIN_ID and uid not in db["resellers"]: return
+    
     markup = types.InlineKeyboardMarkup(row_width=2)
-    times = {"၁ နာရီ": 0.04, "၁ ရက်": 1, "၇ ရက်": 7, "၁ လ": 30, "၁ နှစ်": 365}
-    btns = [types.InlineKeyboardButton(text=t, callback_data=f"t_{d}") for t, d in times.items()]
+    times = {"၁ နာရီ": 0.04, "၁ ရက်": 1, "၇ ရက်": 7, "၁၅ ရက်": 15, "၁ လ": 30, "၁ နှစ်": 365}
+    btns = [types.InlineKeyboardButton(text=t, callback_data=f"time_{d}") for t, d in times.items()]
     markup.add(*btns)
     bot.send_message(message.chat.id, "သက်တမ်းရွေးချယ်ပါ:", reply_markup=markup)
 
-@bot.callback_query_handler(func=lambda c: c.data.startswith("t_"))
-def ask_appid(call):
+@bot.callback_query_handler(func=lambda c: c.data.startswith("time_"))
+def get_app_id(call):
     user_process[call.from_user.id] = {"days": float(call.data.split("_")[1])}
-    msg = bot.edit_message_text("Client ရဲ့ App ID ကို ရိုက်ထည့်ပါ:", chat_id=call.message.chat.id, message_id=call.message.message_id)
-    bot.register_next_step_handler(msg, finalize)
+    msg = bot.edit_message_text("Client ၏ App ID ကို ရိုက်ထည့်ပါ:", chat_id=call.message.chat.id, message_id=call.message.message_id)
+    bot.register_next_step_handler(msg, finalize_generation)
 
-def finalize(message):
-    user_id = str(message.from_user.id)
-    app_id = message.text.strip()
+def finalize_generation(message):
+    uid = str(message.from_user.id)
+    appID = message.text.strip()
     db = load_db()
-    
-    if int(user_id) != ADMIN_ID:
-        if db["resellers"][user_id]["points"] <= 0:
-            bot.send_message(message.chat.id, "❌ Point မလောက်တော့ပါ။"); return
-        db["resellers"][user_id]["points"] -= 1
 
-    new_key = f"{app_id}@{datetime.now().strftime('%d-%m-%Y')}"
+    # Base64 Decoding logic from your file
+    try:
+        real_uid = base64.b16decode(appID[2:-3]).decode()
+        if len(real_uid) <= 8: raise Exception()
+    except:
+        bot.send_message(message.chat.id, "❌ Invalid App ID! ကျေးဇူးပြု၍ ပြန်စစ်ပါ။")
+        return
+
+    if int(uid) != ADMIN_ID:
+        if db["resellers"][uid]["points"] <= 0:
+            bot.send_message(message.chat.id, "❌ Point မလောက်တော့ပါ။")
+            return
+        db["resellers"][uid]["points"] -= 1
+
+    # သင့်ရဲ့ Format အတိုင်း Key ထုတ်ခြင်း: uid@မိနစ်-နာရီ-ရက်-လ-ခုနှစ်
+    expire_str = create_expiration_string(user_process[message.from_user.id]["days"])
+    new_key = f"{real_uid}@{expire_str}"
+    
     db["generated_keys"][new_key] = user_process[message.from_user.id]["days"]
     save_db(db)
     bot.send_message(message.chat.id, f"✅ **Key ထွက်လာပါပြီ:**\n`{new_key}`", parse_mode="Markdown")
 
-# --- Handle Keys & Points ---
+# --- Key Activation Logic ---
 @bot.message_handler(func=lambda m: True)
-def handle_msg(message):
-    uid, text, db = str(message.from_user.id), message.text.strip(), load_db()
+def handle_all(message):
+    uid = str(message.from_user.id)
+    text = message.text.strip()
+    db = load_db()
+
     if text in db["generated_keys"]:
         days = db["generated_keys"][text]
+        # သက်တမ်းတိုးပေးခြင်း
         now = datetime.now()
-        start = max(now, datetime.strptime(db["users"].get(uid, now.strftime("%Y-%m-%d")), "%Y-%m-%d")) if uid in db["users"] else now
-        expiry = start + timedelta(days=days)
+        start_date = max(now, datetime.strptime(db["users"].get(uid, now.strftime("%Y-%m-%d")), "%Y-%m-%d")) if uid in db["users"] else now
+        expiry = start_date + timedelta(days=days)
         db["users"][uid] = expiry.strftime("%Y-%m-%d")
         del db["generated_keys"][text]
         save_db(db)
-        bot.send_message(message.chat.id, f"🎉 **Activate အောင်မြင်သည်!**\nExpiry: `{db['users'][uid]}`", parse_mode="Markdown")
-    elif text == "Point စစ်မည် 💰" and uid in db["resellers"]:
-        bot.send_message(message.chat.id, f"💰 လက်ကျန် Point: `{db['resellers'][uid]['points']}`")
-    elif text == "Reseller စာရင်း 📋" and int(uid) == ADMIN_ID:
-        res_list = "\n".join([f"ID: `{i}` | Pts: `{d['points']}`" for i, d in db["resellers"].items()])
-        bot.send_message(message.chat.id, f"👥 **Resellers:**\n{res_list or 'မရှိသေးပါ'}", parse_mode="Markdown")
+        bot.send_message(message.chat.id, f"🎉 **Activate အောင်မြင်သည်!**\nသက်တမ်းကုန်ရက်: `{db['users'][uid]}`")
+    
+    elif text == "Key စာရင်း 🔑" and int(uid) == ADMIN_ID:
+        keys = db.get("generated_keys", {})
+        msg = "🔑 **အသုံးမပြုရသေးသော Key များ:**\n\n" + "\n".join([f"`{k}`" for k in keys.keys()])
+        bot.send_message(message.chat.id, msg if keys else "Key စာရင်းမရှိပါ။", parse_mode="Markdown")
 
 bot.infinity_polling()
