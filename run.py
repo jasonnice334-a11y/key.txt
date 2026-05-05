@@ -1,121 +1,142 @@
 import telebot
 from telebot import types
 import json
-from github import Github
 import os
-from datetime import datetime, timedelta
-from flask import Flask
-import threading
-import base64
+import random
+import string
+from datetime import datetime
 
-# Flask app for Render port binding
-app = Flask(__name__)
-@app.route('/')
-def home():
-    return "Bot is running!"
-
-def run_flask():
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
-
-# Bot Logic
-API_TOKEN = os.getenv('BOT_TOKEN')
-GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
-REPO_NAME = 'jasonnice334-a11y/key.txt' # သင့် Repo နာမည် အမှန်ကို ပြန်စစ်ပါ
-FILE_PATH = 'key.txt'
+# --- Configurations ---
+API_TOKEN = '8592959813:AAEDsofdrjOQvcmqYAE12nWMLOq2RziSdu0'
+ADMIN_ID = 8253065182
+ADMIN_NAME = "MYO MYINT AUNG"
+DB_FILE = 'resellers.json'
 
 bot = telebot.TeleBot(API_TOKEN)
-g = Github(GITHUB_TOKEN)
 
-# --- Key Generation Functions (Logic from create_key.py) ---
+# --- Database Functions ---
+def load_db():
+    if not os.path.exists(DB_FILE):
+        with open(DB_FILE, 'w') as f:
+            json.dump({"resellers": {}, "generated_keys": []}, f)
+    with open(DB_FILE, 'r') as f:
+        try:
+            return json.load(f)
+        except:
+            return {"resellers": {}, "generated_keys": []}
 
-def add_months(date, months):
-    month = date.month - 1 + months
-    year = date.year + month // 12
-    month = month % 12 + 1
-    days_in_month = [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    day = min(date.day, days_in_month[month - 1])
-    return date.replace(year=year, month=month, day=day)
+def save_db(data):
+    with open(DB_FILE, 'w') as f:
+        json.dump(data, f, indent=4)
 
-def create_expiration(option):
-    now = datetime.now()
-    options = {"1": timedelta(hours=1), "2": timedelta(days=1), "3": timedelta(days=7), "4": timedelta(days=15)}
-    month_options = {"5": 1, "6": 2, "7": 3, "8": 12}
-    if option in options:
-        expire = now + options[option]
-    elif option in month_options:
-        expire = add_months(now, month_options[option])
-    else: return None
-    return expire.strftime("%M-%H-%d-%m-%Y")
+# --- Helper Functions ---
+def generate_random_key(length=12):
+    characters = string.ascii_uppercase + string.digits
+    return ''.join(random.choice(characters) for _ in range(length))
 
-def save_key_to_github(new_key):
-    repo = g.get_repo(REPO_NAME)
-    contents = repo.get_contents(FILE_PATH)
-    data = json.loads(contents.decoded_content.decode())
-    if new_key not in data['clients']:
-        data['clients'].append(new_key)
-        repo.update_file(contents.path, f"Add key: {new_key}", json.dumps(data, indent=4), contents.sha)
-        return True
-    return False
-
-# --- Bot Handlers ---
+# --- Handlers ---
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    markup = types.InlineKeyboardMarkup()
-    btn1 = types.InlineKeyboardButton("Generate Key 🔑", callback_data="gen_key")
-    btn2 = types.InlineKeyboardButton("List Keys 📋", callback_data="list_keys")
-    markup.add(btn1, btn2)
-    bot.send_message(message.chat.id, "🌟 Admin Panel is Online!", reply_markup=markup)
+    user_id = message.from_user.id
+    db = load_db()
+    
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    
+    if user_id == ADMIN_ID:
+        btn1 = types.KeyboardButton("Generate Key 🔑")
+        btn2 = types.KeyboardButton("Reseller List 📋")
+        btn3 = types.KeyboardButton("Add Reseller ➕")
+        btn4 = types.KeyboardButton("Key History 📜")
+        markup.add(btn1, btn2, btn3, btn4)
+        bot.send_message(message.chat.id, f"🌟 **Admin Dashboard**\nAdmin: `{ADMIN_NAME}`\n\nReseller ခန့်ရန် သို့မဟုတ် Point ထည့်ရန် `/add [ID] [Points]` ကိုသုံးပါ။", reply_markup=markup, parse_mode="Markdown")
+        
+    elif str(user_id) in db["resellers"]:
+        points = db["resellers"][str(user_id)]["points"]
+        btn1 = types.KeyboardButton("Generate Key 🔑")
+        btn2 = types.KeyboardButton("My Balance 💰")
+        markup.add(btn1, btn2)
+        bot.send_message(message.chat.id, f"👋 **Reseller Panel**\nလက်ရှိ Point: `{points}`", reply_markup=markup, parse_mode="Markdown")
+        
+    else:
+        bot.send_message(message.chat.id, f"❌ သင်သည် အသုံးပြုခွင့်မရှိပါ။\nKey ဝယ်ယူရန် Admin **{ADMIN_NAME}** ကို ဆက်သွယ်ပါ။", parse_mode="Markdown")
 
-@bot.callback_query_handler(func=lambda call: call.data == "gen_key")
-def ask_option(call):
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    options = [
-        ("1 Hour", "1"), ("1 Day", "2"), ("7 Days", "3"), ("15 Days", "4"),
-        ("1 Month", "5"), ("2 Months", "6"), ("3 Months", "7"), ("1 Year", "8")
-    ]
-    btns = [types.InlineKeyboardButton(text, callback_data=f"opt_{val}") for text, val in options]
-    markup.add(*btns)
-    bot.edit_message_text("Select Expiration Time:", call.message.chat.id, call.message.message_id, reply_markup=markup)
+# --- Admin Commands ---
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("opt_"))
-def ask_app_id(call):
-    option = call.data.split("_")[1]
-    msg = bot.send_message(call.message.chat.id, "Enter the Client App ID:")
-    bot.register_next_step_handler(msg, process_generation, option)
-
-def process_generation(message, option):
-    app_id = message.text.strip()
+@bot.message_handler(commands=['add'])
+def add_reseller_cmd(message):
+    if message.from_user.id != ADMIN_ID: return
     try:
-        # App ID မှ UID ကို decode လုပ်ခြင်း
-        uid = base64.b16decode(app_id[2:-3]).decode()
-        if len(uid) <= 8: raise Exception()
+        args = message.text.split()
+        target_id = args[1]
+        new_points = int(args[2])
         
-        expire_date = create_expiration(option) # သက်တမ်းသတ်မှတ်ခြင်း
-        generated_key = f"{uid}@{expire_date}"
-        
-        if save_key_to_github(generated_key):
-            bot.send_message(message.chat.id, f"✅ Key Generated & Saved:\n`{generated_key}`", parse_mode="Markdown")
+        db = load_db()
+        if target_id in db["resellers"]:
+            db["resellers"][target_id]["points"] += new_points
         else:
-            bot.send_message(message.chat.id, "❌ Key already exists in database.")
-            
+            db["resellers"][target_id] = {"points": new_points}
+        
+        save_db(db)
+        bot.send_message(message.chat.id, f"✅ ID: `{target_id}` ထံသို့ Point `{new_points}` ထည့်သွင်းပြီးပါပြီ။", parse_mode="Markdown")
     except:
-        bot.send_message(message.chat.id, "❌ Invalid App ID. Please try again.")
+        bot.send_message(message.chat.id, "💡 အသုံးပြုပုံ: `/add [ID] [Points]`")
 
-@bot.callback_query_handler(func=lambda call: call.data == "list_keys")
-def list_keys(call):
-    try:
-        repo = g.get_repo(REPO_NAME)
-        contents = repo.get_contents(FILE_PATH)
-        data = json.loads(contents.decoded_content.decode())
-        clients = data.get('clients', [])
-        if not clients:
-            bot.send_message(call.message.chat.id, "No registered clients.")
-        else:
-            bot.send_message(call.message.chat.id, "📋 Registered Keys:\n" + "\n".join(clients))
-    except Exception as e:
-        bot.send_message(call.message.chat.id, f"❌ Error: {e}")
+# --- Button Logic ---
 
-if __name__ == "__main__":
-    threading.Thread(target=run_flask).start()
-    bot.polling(none_stop=True)
+@bot.message_handler(func=lambda message: True)
+def handle_all_messages(message):
+    user_id = message.from_user.id
+    db = load_db()
+
+    if message.text == "Generate Key 🔑":
+        is_admin = (user_id == ADMIN_ID)
+        is_res = (str(user_id) in db["resellers"])
+        
+        if not (is_admin or is_res): return
+
+        if is_res and not is_admin:
+            if db["resellers"][str(user_id)]["points"] <= 0:
+                bot.send_message(message.chat.id, "❌ သင့်တွင် Point မလောက်တော့ပါ။")
+                return
+            db["resellers"][str(user_id)]["points"] -= 1
+        
+        key = f"PREMIUM-{generate_random_key()}"
+        db["generated_keys"].append({
+            "key": key,
+            "by": user_id,
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M")
+        })
+        save_db(db)
+        
+        bot.send_message(message.chat.id, f"✅ **Key Generated!**\n\n`{key}`", parse_mode="Markdown")
+        if is_res and not is_admin:
+            bot.send_message(message.chat.id, f"📉 လက်ကျန် Point: `{db['resellers'][str(user_id)]['points']}`", parse_mode="Markdown")
+
+    elif message.text == "My Balance 💰":
+        if str(user_id) in db["resellers"]:
+            pts = db["resellers"][str(user_id)]["points"]
+            bot.send_message(message.chat.id, f"💰 သင့်လက်ကျန် Point: `{pts}`", parse_mode="Markdown")
+
+    elif message.text == "Reseller List 📋" and user_id == ADMIN_ID:
+        if not db["resellers"]:
+            bot.send_message(message.chat.id, "သတ်မှတ်ထားသော Reseller မရှိသေးပါ။")
+            return
+        msg = "👥 **Current Resellers:**\n\n"
+        for rid, data in db["resellers"].items():
+            msg += f"• ID: `{rid}` | Points: `{data['points']}`\n"
+        bot.send_message(message.chat.id, msg, parse_mode="Markdown")
+
+    elif message.text == "Key History 📜" and user_id == ADMIN_ID:
+        keys = db["generated_keys"][-10:]
+        if not keys:
+            bot.send_message(message.chat.id, "ထုတ်ထားသော Key မရှိသေးပါ။")
+            return
+        msg = "📜 **Recent History:**\n\n"
+        for k in keys:
+            msg += f"🔑 `{k['key']}`\nBY: `{k['by']}` | {k['date']}\n\n"
+        bot.send_message(message.chat.id, msg, parse_mode="Markdown")
+
+# Run Bot
+print(f"--- Bot Active (Admin: {ADMIN_NAME}) ---")
+bot.infinity_polling()
