@@ -1,39 +1,63 @@
 import telebot
 from telebot import types
 import json
-import os
 import base64
+import requests
+import os
 from datetime import datetime, timedelta
 
-# --- Configurations ---
+# --- GitHub Configurations ---
+# သင်ပေးထားတဲ့ Token ကို ဒီမှာ ထည့်ထားပါတယ်
+GITHUB_TOKEN = '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'
+GITHUB_REPO = 'jasonnice334-a11y/key.txt' # သင့် Repo လမ်းကြောင်း
+DB_PATH = 'database.json'
+KEY_LOG_PATH = 'key.txt'
+
+# --- Bot Configurations ---
 API_TOKEN = '8592959813:AAEDsofdrjOQvcmqYAE12nWMLOq2RziSdu0'
 ADMIN_ID = 8253065182
 ADMIN_NAME = "MYO MYINT AUNG"
-DB_FILE = 'database.json'
 
 bot = telebot.TeleBot(API_TOKEN)
 user_process = {}
 
-# --- Database Functions ---
+# --- GitHub Helper Functions ---
+def get_github_file(path):
+    """GitHub ပေါ်က ဖိုင်ကို ဖတ်ရန်"""
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{path}"
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    r = requests.get(url, headers=headers)
+    if r.status_code == 200:
+        content = base64.b64decode(r.json()['content']).decode('utf-8')
+        return content, r.json()['sha']
+    return None, None
+
+def update_github_file(path, content, message="Update file"):
+    """GitHub ပေါ်က ဖိုင်ကို အသစ်ပြန်ရေးရန်"""
+    _, sha = get_github_file(path)
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{path}"
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    data = {
+        "message": message,
+        "content": base64.b64encode(content.encode('utf-8')).decode('utf-8'),
+    }
+    if sha:
+        data["sha"] = sha
+    
+    requests.put(url, json=data, headers=headers)
+
+# --- Database Management ---
 def load_db():
-    if not os.path.exists(DB_FILE):
-        return {"resellers": {}, "generated_keys": {}, "users": {}}
-    with open(DB_FILE, 'r') as f:
-        try: return json.load(f)
-        except: return {"resellers": {}, "generated_keys": {}, "users": {}}
+    content, _ = get_github_file(DB_PATH)
+    if content:
+        try: return json.loads(content)
+        except: pass
+    return {"resellers": {}, "generated_keys": {}, "users": {}}
 
 def save_db(data):
-    with open(DB_FILE, 'w') as f:
-        json.dump(data, f, indent=4)
+    update_github_file(DB_PATH, json.dumps(data, indent=4), "Update Database")
 
-# --- Key Generation Logic (Your Specific Format) ---
-def create_expiration_string(days):
-    now = datetime.now()
-    expire = now + timedelta(days=days)
-    # မိနစ်-နာရီ-ရက်-လ-ခုနှစ် ပုံစံအတိုင်း ပြန်ပေးခြင်း
-    return expire.strftime("%M-%H-%d-%m-%Y")
-
-# --- Commands ---
+# --- Start Handler ---
 @bot.message_handler(commands=['start'])
 def start(message):
     uid = str(message.from_user.id)
@@ -41,22 +65,18 @@ def start(message):
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     
     if int(uid) == ADMIN_ID:
-        markup.add("Key ထုတ်မည် 🔑", "Reseller စာရင်း 📋", "Key စာရင်း 🔑")
-        bot.send_message(message.chat.id, f"🌟 **Admin Panel**\nAdmin: `{ADMIN_NAME}`", reply_markup=markup)
+        markup.add("Key ထုတ်မည် 🔑", "Reseller စာရင်း 📋", "Key စာရင်း 📋")
+        bot.send_message(message.chat.id, f"🌟 **Admin Panel (GitHub Live)**\nAdmin: `{ADMIN_NAME}`", reply_markup=markup)
     elif uid in db["resellers"]:
         markup.add("Key ထုတ်မည် 🔑", "Point စစ်မည် 💰")
-        bot.send_message(message.chat.id, f"👋 **Reseller Panel**\nPoints: `{db['resellers'][uid]['points']}`", reply_markup=markup)
+        bot.send_message(message.chat.id, f"👋 **Reseller Panel**\nလက်ကျန် Point: `{db['resellers'][uid]['points']}`", reply_markup=markup)
     else:
         expiry = db["users"].get(uid, "သက်တမ်းမရှိသေးပါ")
-        bot.send_message(message.chat.id, f"👤 **User Status**\nExpiry: `{expiry}`\n\nKey ကို ရိုက်ထည့်၍ Activate လုပ်နိုင်ပါသည်။")
+        bot.send_message(message.chat.id, f"👤 **User Status**\nသက်တမ်းကုန်ရက်: `{expiry}`\n\nKey ကို ရိုက်ထည့်၍ Activate လုပ်နိုင်ပါသည်။")
 
 # --- Generate Key Steps ---
 @bot.message_handler(func=lambda m: m.text == "Key ထုတ်မည် 🔑")
-def handle_gen_key(message):
-    uid = str(message.from_user.id)
-    db = load_db()
-    if int(uid) != ADMIN_ID and uid not in db["resellers"]: return
-    
+def ask_time(message):
     markup = types.InlineKeyboardMarkup(row_width=2)
     times = {"၁ နာရီ": 0.04, "၁ ရက်": 1, "၇ ရက်": 7, "၁၅ ရက်": 15, "၁ လ": 30, "၁ နှစ်": 365}
     btns = [types.InlineKeyboardButton(text=t, callback_data=f"time_{d}") for t, d in times.items()]
@@ -64,81 +84,78 @@ def handle_gen_key(message):
     bot.send_message(message.chat.id, "သက်တမ်းရွေးချယ်ပါ:", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("time_"))
-def get_app_id(call):
+def ask_appid(call):
     user_process[call.from_user.id] = {"days": float(call.data.split("_")[1])}
-    msg = bot.edit_message_text("Client ၏ App ID ကို ရိုက်ထည့်ပါ:", chat_id=call.message.chat.id, message_id=call.message.message_id)
-    bot.register_next_step_handler(msg, finalize_generation)
+    msg = bot.send_message(call.message.chat.id, "Client ၏ App ID ကို ပို့ပေးပါ:")
+    bot.register_next_step_handler(msg, finalize_gen)
 
-def finalize_generation(message):
+def finalize_gen(message):
     uid = str(message.from_user.id)
     appID = message.text.strip()
     db = load_db()
 
-    # Base64 Decoding logic from your file
+    # App ID ကနေ Real UID ထုတ်ယူခြင်း (သင့်မူရင်း create_key logic အတိုင်း)
     try:
         real_uid = base64.b16decode(appID[2:-3]).decode()
-        if len(real_uid) <= 8: raise Exception()
     except:
-        bot.send_message(message.chat.id, "❌ Invalid App ID! ကျေးဇူးပြု၍ ပြန်စစ်ပါ။")
-        return
+        bot.send_message(message.chat.id, "❌ App ID မှားယွင်းနေပါသည်။"); return
 
+    # Reseller ဖြစ်ပါက Point နှုတ်ခြင်း
     if int(uid) != ADMIN_ID:
-        if db["resellers"][uid]["points"] <= 0:
-            bot.send_message(message.chat.id, "❌ Point မလောက်တော့ပါ။")
-            return
+        if db["resellers"].get(uid, {}).get("points", 0) <= 0:
+            bot.send_message(message.chat.id, "❌ Point မလောက်တော့ပါ။"); return
         db["resellers"][uid]["points"] -= 1
 
-    # သင့်ရဲ့ Format အတိုင်း Key ထုတ်ခြင်း: uid@မိနစ်-နာရီ-ရက်-လ-ခုနှစ်
-    expire_str = create_expiration_string(user_process[message.from_user.id]["days"])
+    # Key ဖန်တီးခြင်း
+    expire_str = (datetime.now() + timedelta(days=user_process[message.from_user.id]["days"])).strftime("%M-%H-%d-%m-%Y")
     new_key = f"{real_uid}@{expire_str}"
     
     db["generated_keys"][new_key] = user_process[message.from_user.id]["days"]
     save_db(db)
-    bot.send_message(message.chat.id, f"✅ **Key ထွက်လာပါပြီ:**\n`{new_key}`", parse_mode="Markdown")
 
-# --- Key Activation Logic ---
+    # GitHub ထဲက key.txt ကို သွားရေးခြင်း
+    old_keys, _ = get_github_file(KEY_LOG_PATH)
+    updated_keys = (old_keys or "") + f"{new_key}\n"
+    update_github_file(KEY_LOG_PATH, updated_keys, f"New Key Generated: {new_key}")
+
+    bot.send_message(message.chat.id, f"✅ **Key ထွက်လာပါပြီ:**\n`{new_key}`")
+
+# --- Point ထည့်ရန် (Admin Only) ---
+@bot.message_handler(commands=['add'])
+def add_res(message):
+    if message.from_user.id != ADMIN_ID: return
+    try:
+        args = message.text.split()
+        target_id, pts = args[1], int(args[2])
+        db = load_db()
+        if target_id in db["resellers"]:
+            db["resellers"][target_id]["points"] += pts
+        else:
+            db["resellers"][target_id] = {"points": pts}
+        save_db(db)
+        bot.send_message(message.chat.id, f"✅ ID `{target_id}` ကို Point `{pts}` ခု ထည့်သွင်းပြီးပါပြီ။")
+    except: bot.send_message(message.chat.id, "💡 Format: `/add [ID] [Points]`")
+
+# --- Message Handling ---
 @bot.message_handler(func=lambda m: True)
-def handle_all(message):
-    uid = str(message.from_user.id)
-    text = message.text.strip()
+def handle_msg(message):
+    uid, text = str(message.from_user.id), message.text.strip()
     db = load_db()
 
+    # Key Activate လုပ်ခြင်း
     if text in db["generated_keys"]:
         days = db["generated_keys"][text]
-        # သက်တမ်းတိုးပေးခြင်း
-        now = datetime.now()
-        start_date = max(now, datetime.strptime(db["users"].get(uid, now.strftime("%Y-%m-%d")), "%Y-%m-%d")) if uid in db["users"] else now
-        expiry = start_date + timedelta(days=days)
+        expiry = datetime.now() + timedelta(days=days)
         db["users"][uid] = expiry.strftime("%Y-%m-%d")
         del db["generated_keys"][text]
         save_db(db)
         bot.send_message(message.chat.id, f"🎉 **Activate အောင်မြင်သည်!**\nသက်တမ်းကုန်ရက်: `{db['users'][uid]}`")
     
-    elif text == "Key စာရင်း 🔑" and int(uid) == ADMIN_ID:
-        keys = db.get("generated_keys", {})
-        msg = "🔑 **အသုံးမပြုရသေးသော Key များ:**\n\n" + "\n".join([f"`{k}`" for k in keys.keys()])
-        bot.send_message(message.chat.id, msg if keys else "Key စာရင်းမရှိပါ။", parse_mode="Markdown")
+    elif text == "Point စစ်မည် 💰" and uid in db["resellers"]:
+        bot.send_message(message.chat.id, f"💰 လက်ကျန် Point: `{db['resellers'][uid]['points']}`")
+    
+    elif text == "Key စာရင်း 📋" and int(uid) == ADMIN_ID:
+        content, _ = get_github_file(KEY_LOG_PATH)
+        bot.send_message(message.chat.id, f"🔑 **Key မှတ်တမ်း (GitHub):**\n\n`{content or 'မရှိသေးပါ'}`")
 
-bot.infinity_polling()@bot.message_handler(func=lambda m: m.text == "Key စာရင်း 🔑")
-def view_keys(message):
-    if message.from_user.id != ADMIN_ID: return
-    
-    if os.path.exists("key.txt"):
-        with open("key.txt", "r") as f:
-            all_keys = f.read()
-        if all_keys.strip():
-            bot.send_message(message.chat.id, f"🔑 **လက်ရှိ Key စာရင်း:**\n\n`{all_keys}`", parse_mode="Markdown")
-        else:
-            bot.send_message(message.chat.id, "လက်ရှိတွင် Key စာရင်း အလွတ်ဖြစ်နေပါသည်။")
-    else:
-        bot.send_message(message.chat.id, "Key မှတ်တမ်းဖိုင် မရှိသေးပါ။")
-        
-def finalize_generation(message):
-    # ... (ယခင် code များ) ...
-    
-    # Key ကို key.txt ဖိုင်ထဲသို့ ထည့်သွင်းခြင်း
-    with open("key.txt", "a") as f:
-        f.write(f"{new_key}\n")
-    
-    bot.send_message(message.chat.id, f"✅ **Key ထွက်လာပါပြီ:**\n`{new_key}`\n\n(Key ကို key.txt ထဲသို့ သိမ်းဆည်းပြီးပါပြီ)", parse_mode="Markdown")
-    
+bot.infinity_polling()
