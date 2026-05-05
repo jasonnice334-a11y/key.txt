@@ -4,139 +4,135 @@ import json
 import os
 import random
 import string
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # --- Configurations ---
 API_TOKEN = '8592959813:AAEDsofdrjOQvcmqYAE12nWMLOq2RziSdu0'
 ADMIN_ID = 8253065182
 ADMIN_NAME = "MYO MYINT AUNG"
-DB_FILE = 'resellers.json'
+DB_FILE = 'database.json'
 
 bot = telebot.TeleBot(API_TOKEN)
 
 # --- Database Functions ---
 def load_db():
     if not os.path.exists(DB_FILE):
+        initial_data = {
+            "resellers": {}, 
+            "generated_keys": {}, # {"KEY123": "30_days"}
+            "users": {} # {"USER_ID": "expiry_date"}
+        }
         with open(DB_FILE, 'w') as f:
-            json.dump({"resellers": {}, "generated_keys": []}, f)
+            json.dump(initial_data, f)
     with open(DB_FILE, 'r') as f:
-        try:
-            return json.load(f)
-        except:
-            return {"resellers": {}, "generated_keys": []}
+        return json.load(f)
 
 def save_db(data):
     with open(DB_FILE, 'w') as f:
         json.dump(data, f, indent=4)
 
 # --- Helper Functions ---
-def generate_random_key(length=12):
-    characters = string.ascii_uppercase + string.digits
-    return ''.join(random.choice(characters) for _ in range(length))
+def generate_random_key(length=10):
+    return ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(length))
 
 # --- Handlers ---
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    user_id = message.from_user.id
+    user_id = str(message.from_user.id)
     db = load_db()
     
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     
-    if user_id == ADMIN_ID:
+    if int(user_id) == ADMIN_ID:
         btn1 = types.KeyboardButton("Generate Key 🔑")
         btn2 = types.KeyboardButton("Reseller List 📋")
-        btn3 = types.KeyboardButton("Add Reseller ➕")
-        btn4 = types.KeyboardButton("Key History 📜")
-        markup.add(btn1, btn2, btn3, btn4)
-        bot.send_message(message.chat.id, f"🌟 **Admin Dashboard**\nAdmin: `{ADMIN_NAME}`\n\nReseller ခန့်ရန် သို့မဟုတ် Point ထည့်ရန် `/add [ID] [Points]` ကိုသုံးပါ။", reply_markup=markup, parse_mode="Markdown")
-        
-    elif str(user_id) in db["resellers"]:
-        points = db["resellers"][str(user_id)]["points"]
-        btn1 = types.KeyboardButton("Generate Key 🔑")
-        btn2 = types.KeyboardButton("My Balance 💰")
         markup.add(btn1, btn2)
-        bot.send_message(message.chat.id, f"👋 **Reseller Panel**\nလက်ရှိ Point: `{points}`", reply_markup=markup, parse_mode="Markdown")
+        bot.send_message(message.chat.id, f"🌟 **Admin Dashboard**\nAdmin: {ADMIN_NAME}", reply_markup=markup)
+        
+    elif user_id in db["resellers"]:
+        points = db["resellers"][user_id]["points"]
+        btn1 = types.KeyboardButton("Generate Key 🔑")
+        btn2 = types.KeyboardButton("Check Points 💰")
+        markup.add(btn1, btn2)
+        bot.send_message(message.chat.id, f"👋 **Reseller Panel**\nPoints: {points}", reply_markup=markup)
         
     else:
-        bot.send_message(message.chat.id, f"❌ သင်သည် အသုံးပြုခွင့်မရှိပါ။\nKey ဝယ်ယူရန် Admin **{ADMIN_NAME}** ကို ဆက်သွယ်ပါ။", parse_mode="Markdown")
+        # သာမန် User အတွက် Status ပြမယ်
+        expiry = db["users"].get(user_id, "No Active Plan")
+        bot.send_message(message.chat.id, f"👤 **User Profile**\nExpiry: `{expiry}`\n\nKey ရှိပါက ရိုက်ထည့်၍ Activate လုပ်နိုင်ပါသည်။", parse_mode="Markdown")
 
-# --- Admin Commands ---
+# --- Reseller & Key Logic ---
 
-@bot.message_handler(commands=['add'])
-def add_reseller_cmd(message):
-    if message.from_user.id != ADMIN_ID: return
-    try:
-        args = message.text.split()
-        target_id = args[1]
-        new_points = int(args[2])
-        
-        db = load_db()
-        if target_id in db["resellers"]:
-            db["resellers"][target_id]["points"] += new_points
-        else:
-            db["resellers"][target_id] = {"points": new_points}
-        
-        save_db(db)
-        bot.send_message(message.chat.id, f"✅ ID: `{target_id}` ထံသို့ Point `{new_points}` ထည့်သွင်းပြီးပါပြီ။", parse_mode="Markdown")
-    except:
-        bot.send_message(message.chat.id, "💡 အသုံးပြုပုံ: `/add [ID] [Points]`")
+@bot.message_handler(func=lambda message: message.text == "Generate Key 🔑")
+def handle_gen_key(message):
+    user_id = str(message.from_user.id)
+    db = load_db()
+    
+    # Permission Check
+    if int(user_id) != ADMIN_ID and user_id not in db["resellers"]:
+        return
 
-# --- Button Logic ---
+    # Reseller Point Check
+    if int(user_id) != ADMIN_ID:
+        if db["resellers"][user_id]["points"] <= 0:
+            bot.send_message(message.chat.id, "❌ Point မလောက်တော့ပါ။")
+            return
+        db["resellers"][user_id]["points"] -= 1
+
+    # Key တစ်ခုထုတ်မယ် (ဥပမာ ၃၀ ရက်စာ)
+    new_key = f"VIP-{generate_random_key()}"
+    db["generated_keys"][new_key] = 30 # 30 days
+    save_db(db)
+    
+    bot.send_message(message.chat.id, f"✅ **New Key Generated!**\n\n`{new_key}`\n(Duration: 30 Days)", parse_mode="Markdown")
+
+# --- Key Activation Logic (User ဘက်ခြမ်း) ---
 
 @bot.message_handler(func=lambda message: True)
-def handle_all_messages(message):
-    user_id = message.from_user.id
+def handle_text(message):
+    user_id = str(message.from_user.id)
+    input_text = message.text.strip()
     db = load_db()
 
-    if message.text == "Generate Key 🔑":
-        is_admin = (user_id == ADMIN_ID)
-        is_res = (str(user_id) in db["resellers"])
-        
-        if not (is_admin or is_res): return
+    # Admin အတွက် Point ထည့်တဲ့ command
+    if input_text.startswith("/add") and int(user_id) == ADMIN_ID:
+        try:
+            _, t_id, pts = input_text.split()
+            db["resellers"][t_id] = {"points": int(pts)}
+            save_db(db)
+            bot.send_message(message.chat.id, f"✅ ID {t_id} ထံ Point {pts} ထည့်ပြီးပါပြီ။")
+            return
+        except: pass
 
-        if is_res and not is_admin:
-            if db["resellers"][str(user_id)]["points"] <= 0:
-                bot.send_message(message.chat.id, "❌ သင့်တွင် Point မလောက်တော့ပါ။")
-                return
-            db["resellers"][str(user_id)]["points"] -= 1
+    # User က Key လာရိုက်တဲ့အခါ စစ်ဆေးပေးမယ့်အပိုင်း
+    if input_text in db["generated_keys"]:
+        days = db["generated_keys"][input_text]
         
-        key = f"PREMIUM-{generate_random_key()}"
-        db["generated_keys"].append({
-            "key": key,
-            "by": user_id,
-            "date": datetime.now().strftime("%Y-%m-%d %H:%M")
-        })
+        # သက်တမ်းတွက်ချက်ခြင်း
+        now = datetime.now()
+        if user_id in db["users"]:
+            # အဟောင်းရှိရင် အဟောင်းပေါ်ထပ်ပေါင်းမယ်
+            try:
+                current_expiry = datetime.strptime(db["users"][user_id], "%Y-%m-%d")
+                new_expiry = max(now, current_expiry) + timedelta(days=days)
+            except:
+                new_expiry = now + timedelta(days=days)
+        else:
+            new_expiry = now + timedelta(days=days)
+
+        db["users"][user_id] = new_expiry.strftime("%Y-%m-%d")
+        
+        # သုံးပြီးသား Key ကို ဖျက်မယ်
+        del db["generated_keys"][input_text]
         save_db(db)
         
-        bot.send_message(message.chat.id, f"✅ **Key Generated!**\n\n`{key}`", parse_mode="Markdown")
-        if is_res and not is_admin:
-            bot.send_message(message.chat.id, f"📉 လက်ကျန် Point: `{db['resellers'][str(user_id)]['points']}`", parse_mode="Markdown")
+        bot.send_message(message.chat.id, f"🎉 **Success!**\nသင်၏ VIP သက်တမ်းကို {days} ရက် တိုးမြှင့်လိုက်ပါပြီ။\nExpiry Date: `{db['users'][user_id]}`", parse_mode="Markdown")
+    
+    elif message.text == "Check Points 💰":
+        if user_id in db["resellers"]:
+            bot.send_message(message.chat.id, f"💰 လက်ကျန် Point: {db['resellers'][user_id]['points']}")
 
-    elif message.text == "My Balance 💰":
-        if str(user_id) in db["resellers"]:
-            pts = db["resellers"][str(user_id)]["points"]
-            bot.send_message(message.chat.id, f"💰 သင့်လက်ကျန် Point: `{pts}`", parse_mode="Markdown")
-
-    elif message.text == "Reseller List 📋" and user_id == ADMIN_ID:
-        if not db["resellers"]:
-            bot.send_message(message.chat.id, "သတ်မှတ်ထားသော Reseller မရှိသေးပါ။")
-            return
-        msg = "👥 **Current Resellers:**\n\n"
-        for rid, data in db["resellers"].items():
-            msg += f"• ID: `{rid}` | Points: `{data['points']}`\n"
-        bot.send_message(message.chat.id, msg, parse_mode="Markdown")
-
-    elif message.text == "Key History 📜" and user_id == ADMIN_ID:
-        keys = db["generated_keys"][-10:]
-        if not keys:
-            bot.send_message(message.chat.id, "ထုတ်ထားသော Key မရှိသေးပါ။")
-            return
-        msg = "📜 **Recent History:**\n\n"
-        for k in keys:
-            msg += f"🔑 `{k['key']}`\nBY: `{k['by']}` | {k['date']}\n\n"
-        bot.send_message(message.chat.id, msg, parse_mode="Markdown")
-
-# Run Bot
-print(f"--- Bot Active (Admin: {ADMIN_NAME}) ---")
+# Bot Start
+print("Bot is running...")
 bot.infinity_polling()
