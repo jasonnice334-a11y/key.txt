@@ -119,4 +119,26 @@ def handle_all(message):
         msg = "🔑 **အသုံးမပြုရသေးသော Key များ:**\n\n" + "\n".join([f"`{k}`" for k in keys.keys()])
         bot.send_message(message.chat.id, msg if keys else "Key စာရင်းမရှိပါ။", parse_mode="Markdown")
 
-bot.infinity_polling()
+bot.infinity_polling()@bot.message_handler(func=lambda m: m.text == "Key စာရင်း 🔑")
+def view_keys(message):
+    if message.from_user.id != ADMIN_ID: return
+    
+    if os.path.exists("key.txt"):
+        with open("key.txt", "r") as f:
+            all_keys = f.read()
+        if all_keys.strip():
+            bot.send_message(message.chat.id, f"🔑 **လက်ရှိ Key စာရင်း:**\n\n`{all_keys}`", parse_mode="Markdown")
+        else:
+            bot.send_message(message.chat.id, "လက်ရှိတွင် Key စာရင်း အလွတ်ဖြစ်နေပါသည်။")
+    else:
+        bot.send_message(message.chat.id, "Key မှတ်တမ်းဖိုင် မရှိသေးပါ။")
+        
+def finalize_generation(message):
+    # ... (ယခင် code များ) ...
+    
+    # Key ကို key.txt ဖိုင်ထဲသို့ ထည့်သွင်းခြင်း
+    with open("key.txt", "a") as f:
+        f.write(f"{new_key}\n")
+    
+    bot.send_message(message.chat.id, f"✅ **Key ထွက်လာပါပြီ:**\n`{new_key}`\n\n(Key ကို key.txt ထဲသို့ သိမ်းဆည်းပြီးပါပြီ)", parse_mode="Markdown")
+    
