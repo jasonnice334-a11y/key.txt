@@ -7,16 +7,18 @@ from datetime import datetime, timedelta
 from flask import Flask
 import threading
 
-# Flask app for Render port binding
+# Render Port Binding အတွက် Flask အသေးစားဆောက်ခြင်း
 app = Flask('')
 @app.route('/')
 def home():
-    return "Bot is running!"
+    return "Bot is live!"
 
 def run_flask():
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+    # Render ပေးတဲ့ PORT (သို့မဟုတ်) 8080 မှာ run ပါမယ်
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port)
 
-# Bot Logic
+# Bot Logic များ
 API_TOKEN = os.getenv('BOT_TOKEN')
 GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
 REPO_NAME = 'jasonnice334-a11y/key.txt'
@@ -69,18 +71,13 @@ def list_clients(message):
     try:
         db, _ = get_db()
         clients = db.get("clients", [])
-        if not clients:
-            bot.send_message(message.chat.id, "No clients found.")
-            return
-        text = "📋 Client List:\n\n"
-        markup = types.InlineKeyboardMarkup()
-        for c in clients:
-            text += f"👤 {c}\n"
-            markup.add(types.InlineKeyboardButton(text=f"❌ Delete: {c}", callback_data=f"del_{c}"))
-        bot.send_message(message.chat.id, text, reply_markup=markup)
+        text = "📋 Client List:\n\n" + "\n".join([f"👤 {c}" for c in clients]) if clients else "No clients."
+        bot.send_message(message.chat.id, text)
     except Exception as e:
         bot.send_message(message.chat.id, f"❌ Error: {e}")
 
 if __name__ == "__main__":
+    # Flask ကို Background မှာ run ပါ
     threading.Thread(target=run_flask).start()
+    # Bot ကို စတင် run ပါ
     bot.polling(none_stop=True)
