@@ -77,7 +77,5 @@ def list_clients(message):
         bot.send_message(message.chat.id, f"❌ Error: {e}")
 
 if __name__ == "__main__":
-    # Flask ကို Background မှာ run ပါ
     threading.Thread(target=run_flask).start()
-    # Bot ကို စတင် run ပါ
     bot.polling(none_stop=True)
