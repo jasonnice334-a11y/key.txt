@@ -8,8 +8,7 @@ from datetime import datetime, timedelta
 
 # --- GitHub Configurations ---
 GITHUB_TOKEN = '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'
-# GITHUB_REPO နေရာမှာ (Username/RepoName) ကိုပဲ ထည့်ပါ။ 
-GITHUB_REPO = 'jasonnice334-a11y/key.txt' 
+GITHUB_REPO = 'jasonnice334-a11y/key.txt'
 DB_PATH = 'database.json'
 KEY_LOG_PATH = 'key.txt'
 
@@ -43,15 +42,16 @@ def update_github_file(path, content, message="Update file"):
     }
     if sha:
         data["sha"] = sha
-    
     requests.put(url, json=data, headers=headers)
 
 # --- Database Management ---
 def load_db():
     content, _ = get_github_file(DB_PATH)
     if content:
-        try: return json.loads(content)
-        except: pass
+        try:
+            return json.loads(content)
+        except:
+            pass
     return {"resellers": {}, "generated_keys": {}, "users": {}}
 
 def save_db(data):
@@ -98,12 +98,14 @@ def finalize_gen(message):
     try:
         real_uid = base64.b16decode(appID[2:-3]).decode()
     except:
-        bot.send_message(message.chat.id, "❌ App ID မှားယွင်းနေပါသည်။"); return
+        bot.send_message(message.chat.id, "❌ App ID မှားယွင်းနေပါသည်။")
+        return
 
     # Reseller ဖြစ်ပါက Point နှုတ်ခြင်း
     if int(uid) != ADMIN_ID:
         if db["resellers"].get(uid, {}).get("points", 0) <= 0:
-            bot.send_message(message.chat.id, "❌ Point မလောက်တော့ပါ။"); return
+            bot.send_message(message.chat.id, "❌ Point မလောက်တော့ပါ။")
+            return
         db["resellers"][uid]["points"] -= 1
 
     # Key ဖန်တီးခြင်း
@@ -116,27 +118,24 @@ def finalize_gen(message):
     # --- GitHub ထဲက key.txt ကို JSON format ဖြင့် Update လုပ်ခြင်း ---
     old_content, _ = get_github_file(KEY_LOG_PATH)
     try:
-        # ရှိပြီးသား ဖိုင်ကို JSON အဖြစ်ဖတ်သည်
         data = json.loads(old_content) if old_content else {"clients": []}
         if "clients" not in data:
             data["clients"] = []
-        # Key အသစ်ကို List ထဲ ထည့်သည်
         if new_key not in data["clients"]:
             data["clients"].append(new_key)
     except Exception as e:
-        # JSON မဟုတ်ခဲ့လျှင် အသစ်ပြန်တည်ဆောက်သည်
         data = {"clients": [new_key]}
 
     updated_json = json.dumps(data, indent=4)
     update_github_file(KEY_LOG_PATH, updated_json, f"New Key Added: {new_key}")
 
-    # ပုံထဲကအတိုင်း Message ပို့ခြင်း
     bot.send_message(message.chat.id, f"✅ Key Generated & Saved:\n{new_key}")
 
 # --- Point ထည့်ရန် (Admin Only) ---
 @bot.message_handler(commands=['add'])
 def add_res(message):
-    if message.from_user.id != ADMIN_ID: return
+    if message.from_user.id != ADMIN_ID:
+        return
     try:
         args = message.text.split()
         target_id, pts = args[1], int(args[2])
@@ -147,7 +146,8 @@ def add_res(message):
             db["resellers"][target_id] = {"points": pts}
         save_db(db)
         bot.send_message(message.chat.id, f"✅ ID {target_id} ကို Point {pts} ခု ထည့်သွင်းပြီးပါပြီ။")
-    except: bot.send_message(message.chat.id, "💡 Format: /add [ID] [Points]")
+    except:
+        bot.send_message(message.chat.id, "💡 Format: /add [ID] [Points]")
 
 # --- Message Handling ---
 @bot.message_handler(func=lambda m: True)
@@ -169,65 +169,13 @@ def handle_msg(message):
     
     elif text == "Key စာရင်း 📋" and int(uid) == ADMIN_ID:
         content, _ = get_github_file(KEY_LOG_PATH)
-        bot.send_message(message.chat.id, f"🔑 Key မှတ်တမ်း (GitHub):\n\n{content or 'မရှိသေးပါ'}")def finalize_gen(message):
-    uid = str(message.from_user.id)
-    appID = message.text.strip()
-    db = load_db()
-
-    # App ID မှ Real UID ထုတ်ယူခြင်း
-    try:
-        real_uid = base64.b16decode(appID[2:-3]).decode()
-    except:
-        bot.send_message(message.chat.id, "❌ App ID မှားယွင်းနေပါသည်။"); return
-
-    # Reseller ဖြစ်ပါက Point စစ်ဆေးခြင်း
-    if int(uid) != ADMIN_ID:
-        if db["resellers"].get(uid, {}).get("points", 0) <= 0:
-            bot.send_message(message.chat.id, "❌ Point မလောက်တော့ပါ။"); return
-        db["resellers"][uid]["points"] -= 1
-
-    # Key အသစ် ဖန်တီးခြင်း
-    expire_str = (datetime.now() + timedelta(days=user_process[message.from_user.id]["days"])).strftime("%M-%H-%d-%m-%Y")
-    new_key = f"{real_uid}@{expire_str}"
-    
-    # database.json မှာ သိမ်းဆည်းခြင်း
-    db["generated_keys"][new_key] = user_process[message.from_user.id]["days"]
-    save_db(db)
-
-    # --- GitHub (key.txt) ထဲကို JSON Format အတိုင်း ထပ်ပေါင်းထည့်ခြင်း ---
-    old_content, _ = get_github_file(KEY_LOG_PATH)
-    
-    try:
-        # ရှိပြီးသား key.txt ကို JSON အဖြစ် Load လုပ်သည်
-        data = json.loads(old_content) if old_content else {"clients": []}
-        
-        # clients ဆိုတဲ့ key မရှိခဲ့ရင် အသစ်ဆောက်ပေးသည်
-        if "clients" not in data:
-            data["clients"] = []
-            
-        # Key အသစ်ကို list ထဲသို့ ပေါင်းထည့်သည်
-        if new_key not in data["clients"]:
-            data["clients"].append(new_key)
-            
-    except Exception as e:
-        # အကယ်၍ JSON Error တက်ခဲ့လျှင် (ဥပမာ ဖိုင်အလွတ်ဖြစ်နေလျှင်) format အသစ်ဖြင့် သိမ်းသည်
-        data = {"clients": [new_key]}
-
-    # JSON ကို ပုံစံတကျ (indentation ပါပါ) စာသားအဖြစ် ပြောင်းသည်
-    updated_json = json.dumps(data, indent=4)
-    
-    # GitHub ထဲသို့ ပြန်လည် Update လုပ်သည်
-    update_github_file(KEY_LOG_PATH, updated_json, f"Added new key: {new_key}")
-
-    # ပုံထဲကအတိုင်း စာသားပြသခြင်း
-    bot.send_message(message.chat.id, f"✅ **Key Generated & Saved:**\n`{new_key}`")
-
+        bot.send_message(message.chat.id, f"🔑 Key မှတ်တမ်း (GitHub):\n\n{content or 'မရှိသေးပါ'}")
 
 # --- Bot Run (Webhook Conflict ရှင်းရန်) ---
 if __name__ == "__main__":
     print("Bot is starting...")
     try:
-        bot.remove_webhook() # Render မှာ conflict မဖြစ်အောင် webhook ဖြုတ်ခြင်း
+        bot.remove_webhook()
         print("Webhook removed successfully. Starting polling...")
         bot.infinity_polling(skip_pending=True)
     except Exception as e:
