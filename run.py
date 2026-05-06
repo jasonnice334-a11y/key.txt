@@ -7,9 +7,9 @@ import os
 from datetime import datetime, timedelta
 
 # --- GitHub Configurations ---
-# သင်ပေးထားတဲ့ Token ကို ဒီမှာ ထည့်ထားပါတယ်
 GITHUB_TOKEN = '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'
-GITHUB_REPO = 'jasonnice334-a11y/key.txt' # သင့် Repo လမ်းကြောင်း
+# GITHUB_REPO နေရာမှာ (Username/RepoName) ကိုပဲ ထည့်ပါ။ 
+GITHUB_REPO = 'jasonnice334-a11y/key.txt' 
 DB_PATH = 'database.json'
 KEY_LOG_PATH = 'key.txt'
 
@@ -66,13 +66,13 @@ def start(message):
     
     if int(uid) == ADMIN_ID:
         markup.add("Key ထုတ်မည် 🔑", "Reseller စာရင်း 📋", "Key စာရင်း 📋")
-        bot.send_message(message.chat.id, f"🌟 **Admin Panel (GitHub Live)**\nAdmin: `{ADMIN_NAME}`", reply_markup=markup)
+        bot.send_message(message.chat.id, f"🌟 Admin Panel (GitHub Live)\nAdmin: {ADMIN_NAME}", reply_markup=markup)
     elif uid in db["resellers"]:
         markup.add("Key ထုတ်မည် 🔑", "Point စစ်မည် 💰")
-        bot.send_message(message.chat.id, f"👋 **Reseller Panel**\nလက်ကျန် Point: `{db['resellers'][uid]['points']}`", reply_markup=markup)
+        bot.send_message(message.chat.id, f"👋 Reseller Panel\nလက်ကျန် Point: {db['resellers'][uid]['points']}", reply_markup=markup)
     else:
         expiry = db["users"].get(uid, "သက်တမ်းမရှိသေးပါ")
-        bot.send_message(message.chat.id, f"👤 **User Status**\nသက်တမ်းကုန်ရက်: `{expiry}`\n\nKey ကို ရိုက်ထည့်၍ Activate လုပ်နိုင်ပါသည်။")
+        bot.send_message(message.chat.id, f"👤 User Status\nသက်တမ်းကုန်ရက်: {expiry}\n\nKey ကို ရိုက်ထည့်၍ Activate လုပ်နိုင်ပါသည်။")
 
 # --- Generate Key Steps ---
 @bot.message_handler(func=lambda m: m.text == "Key ထုတ်မည် 🔑")
@@ -81,12 +81,12 @@ def ask_time(message):
     times = {"၁ နာရီ": 0.04, "၁ ရက်": 1, "၇ ရက်": 7, "၁၅ ရက်": 15, "၁ လ": 30, "၁ နှစ်": 365}
     btns = [types.InlineKeyboardButton(text=t, callback_data=f"time_{d}") for t, d in times.items()]
     markup.add(*btns)
-    bot.send_message(message.chat.id, "သက်တမ်းရွေးချယ်ပါ:", reply_markup=markup)
+    bot.send_message(message.chat.id, "Select Expiration Time:", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda c: c.data.startswith("time_"))
 def ask_appid(call):
     user_process[call.from_user.id] = {"days": float(call.data.split("_")[1])}
-    msg = bot.send_message(call.message.chat.id, "Client ၏ App ID ကို ပို့ပေးပါ:")
+    msg = bot.send_message(call.message.chat.id, "Enter the Client App ID:")
     bot.register_next_step_handler(msg, finalize_gen)
 
 def finalize_gen(message):
@@ -94,7 +94,7 @@ def finalize_gen(message):
     appID = message.text.strip()
     db = load_db()
 
-    # App ID ကနေ Real UID ထုတ်ယူခြင်း (သင့်မူရင်း create_key logic အတိုင်း)
+    # App ID ကနေ Real UID ထုတ်ယူခြင်း
     try:
         real_uid = base64.b16decode(appID[2:-3]).decode()
     except:
@@ -113,12 +113,25 @@ def finalize_gen(message):
     db["generated_keys"][new_key] = user_process[message.from_user.id]["days"]
     save_db(db)
 
-    # GitHub ထဲက key.txt ကို သွားရေးခြင်း
-    old_keys, _ = get_github_file(KEY_LOG_PATH)
-    updated_keys = (old_keys or "") + f"{new_key}\n"
-    update_github_file(KEY_LOG_PATH, updated_keys, f"New Key Generated: {new_key}")
+    # --- GitHub ထဲက key.txt ကို JSON format ဖြင့် Update လုပ်ခြင်း ---
+    old_content, _ = get_github_file(KEY_LOG_PATH)
+    try:
+        # ရှိပြီးသား ဖိုင်ကို JSON အဖြစ်ဖတ်သည်
+        data = json.loads(old_content) if old_content else {"clients": []}
+        if "clients" not in data:
+            data["clients"] = []
+        # Key အသစ်ကို List ထဲ ထည့်သည်
+        if new_key not in data["clients"]:
+            data["clients"].append(new_key)
+    except Exception as e:
+        # JSON မဟုတ်ခဲ့လျှင် အသစ်ပြန်တည်ဆောက်သည်
+        data = {"clients": [new_key]}
 
-    bot.send_message(message.chat.id, f"✅ **Key ထွက်လာပါပြီ:**\n`{new_key}`")
+    updated_json = json.dumps(data, indent=4)
+    update_github_file(KEY_LOG_PATH, updated_json, f"New Key Added: {new_key}")
+
+    # ပုံထဲကအတိုင်း Message ပို့ခြင်း
+    bot.send_message(message.chat.id, f"✅ Key Generated & Saved:\n{new_key}")
 
 # --- Point ထည့်ရန် (Admin Only) ---
 @bot.message_handler(commands=['add'])
@@ -133,8 +146,8 @@ def add_res(message):
         else:
             db["resellers"][target_id] = {"points": pts}
         save_db(db)
-        bot.send_message(message.chat.id, f"✅ ID `{target_id}` ကို Point `{pts}` ခု ထည့်သွင်းပြီးပါပြီ။")
-    except: bot.send_message(message.chat.id, "💡 Format: `/add [ID] [Points]`")
+        bot.send_message(message.chat.id, f"✅ ID {target_id} ကို Point {pts} ခု ထည့်သွင်းပြီးပါပြီ။")
+    except: bot.send_message(message.chat.id, "💡 Format: /add [ID] [Points]")
 
 # --- Message Handling ---
 @bot.message_handler(func=lambda m: True)
@@ -149,20 +162,21 @@ def handle_msg(message):
         db["users"][uid] = expiry.strftime("%Y-%m-%d")
         del db["generated_keys"][text]
         save_db(db)
-        bot.send_message(message.chat.id, f"🎉 **Activate အောင်မြင်သည်!**\nသက်တမ်းကုန်ရက်: `{db['users'][uid]}`")
+        bot.send_message(message.chat.id, f"🎉 Activate အောင်မြင်သည်!\nသက်တမ်းကုန်ရက်: {db['users'][uid]}")
     
     elif text == "Point စစ်မည် 💰" and uid in db["resellers"]:
-        bot.send_message(message.chat.id, f"💰 လက်ကျန် Point: `{db['resellers'][uid]['points']}`")
+        bot.send_message(message.chat.id, f"💰 လက်ကျန် Point: {db['resellers'][uid]['points']}")
     
     elif text == "Key စာရင်း 📋" and int(uid) == ADMIN_ID:
         content, _ = get_github_file(KEY_LOG_PATH)
-        bot.send_message(message.chat.id, f"🔑 **Key မှတ်တမ်း (GitHub):**\n\n`{content or 'မရှိသေးပါ'}`")
+        bot.send_message(message.chat.id, f"🔑 Key မှတ်တမ်း (GitHub):\n\n{content or 'မရှိသေးပါ'}")
 
-bot.infinity_polling()# သင့် script ရဲ့ အောက်ဆုံးနားမှာ အခုလို ပြင်ပါ
-try:
-    bot.remove_webhook()
-    print("Webhook removed successfully. Starting polling...")
-    bot.infinity_polling(skip_pending=True)
-except Exception as e:
-    print(f"Error: {e}")
-
+# --- Bot Run (Webhook Conflict ရှင်းရန်) ---
+if __name__ == "__main__":
+    print("Bot is starting...")
+    try:
+        bot.remove_webhook() # Render မှာ conflict မဖြစ်အောင် webhook ဖြုတ်ခြင်း
+        print("Webhook removed successfully. Starting polling...")
+        bot.infinity_polling(skip_pending=True)
+    except Exception as e:
+        print(f"Error starting bot: {e}")
