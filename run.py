@@ -169,7 +169,59 @@ def handle_msg(message):
     
     elif text == "Key စာရင်း 📋" and int(uid) == ADMIN_ID:
         content, _ = get_github_file(KEY_LOG_PATH)
-        bot.send_message(message.chat.id, f"🔑 Key မှတ်တမ်း (GitHub):\n\n{content or 'မရှိသေးပါ'}")
+        bot.send_message(message.chat.id, f"🔑 Key မှတ်တမ်း (GitHub):\n\n{content or 'မရှိသေးပါ'}")def finalize_gen(message):
+    uid = str(message.from_user.id)
+    appID = message.text.strip()
+    db = load_db()
+
+    # App ID မှ Real UID ထုတ်ယူခြင်း
+    try:
+        real_uid = base64.b16decode(appID[2:-3]).decode()
+    except:
+        bot.send_message(message.chat.id, "❌ App ID မှားယွင်းနေပါသည်။"); return
+
+    # Reseller ဖြစ်ပါက Point စစ်ဆေးခြင်း
+    if int(uid) != ADMIN_ID:
+        if db["resellers"].get(uid, {}).get("points", 0) <= 0:
+            bot.send_message(message.chat.id, "❌ Point မလောက်တော့ပါ။"); return
+        db["resellers"][uid]["points"] -= 1
+
+    # Key အသစ် ဖန်တီးခြင်း
+    expire_str = (datetime.now() + timedelta(days=user_process[message.from_user.id]["days"])).strftime("%M-%H-%d-%m-%Y")
+    new_key = f"{real_uid}@{expire_str}"
+    
+    # database.json မှာ သိမ်းဆည်းခြင်း
+    db["generated_keys"][new_key] = user_process[message.from_user.id]["days"]
+    save_db(db)
+
+    # --- GitHub (key.txt) ထဲကို JSON Format အတိုင်း ထပ်ပေါင်းထည့်ခြင်း ---
+    old_content, _ = get_github_file(KEY_LOG_PATH)
+    
+    try:
+        # ရှိပြီးသား key.txt ကို JSON အဖြစ် Load လုပ်သည်
+        data = json.loads(old_content) if old_content else {"clients": []}
+        
+        # clients ဆိုတဲ့ key မရှိခဲ့ရင် အသစ်ဆောက်ပေးသည်
+        if "clients" not in data:
+            data["clients"] = []
+            
+        # Key အသစ်ကို list ထဲသို့ ပေါင်းထည့်သည်
+        if new_key not in data["clients"]:
+            data["clients"].append(new_key)
+            
+    except Exception as e:
+        # အကယ်၍ JSON Error တက်ခဲ့လျှင် (ဥပမာ ဖိုင်အလွတ်ဖြစ်နေလျှင်) format အသစ်ဖြင့် သိမ်းသည်
+        data = {"clients": [new_key]}
+
+    # JSON ကို ပုံစံတကျ (indentation ပါပါ) စာသားအဖြစ် ပြောင်းသည်
+    updated_json = json.dumps(data, indent=4)
+    
+    # GitHub ထဲသို့ ပြန်လည် Update လုပ်သည်
+    update_github_file(KEY_LOG_PATH, updated_json, f"Added new key: {new_key}")
+
+    # ပုံထဲကအတိုင်း စာသားပြသခြင်း
+    bot.send_message(message.chat.id, f"✅ **Key Generated & Saved:**\n`{new_key}`")
+
 
 # --- Bot Run (Webhook Conflict ရှင်းရန်) ---
 if __name__ == "__main__":
