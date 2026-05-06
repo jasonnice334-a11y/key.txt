@@ -158,4 +158,11 @@ def handle_msg(message):
         content, _ = get_github_file(KEY_LOG_PATH)
         bot.send_message(message.chat.id, f"🔑 **Key မှတ်တမ်း (GitHub):**\n\n`{content or 'မရှိသေးပါ'}`")
 
-bot.infinity_polling()
+bot.infinity_polling()# သင့် script ရဲ့ အောက်ဆုံးနားမှာ အခုလို ပြင်ပါ
+try:
+    bot.remove_webhook()
+    print("Webhook removed successfully. Starting polling...")
+    bot.infinity_polling(skip_pending=True)
+except Exception as e:
+    print(f"Error: {e}")
+
