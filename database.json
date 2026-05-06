@@ -4,7 +4,12 @@
             "points": 100
         }
     },
-    "generated_keys": {},
+    "generated_keys": {
+        "u0_a33110331@28-20-06-05-2026": {
+            "generated_by": "8253065182",
+            "time": "2026-05-06 19:28:29.210010"
+        }
+    },
     "users": {},
     "banned": []
 }
