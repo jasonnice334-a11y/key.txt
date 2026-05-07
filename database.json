@@ -6,5 +6,12 @@
     },
     "generated_keys": {},
     "users": {},
-    "banned": []
+    "banned": [],
+    "all_users": {
+        "7880336250": {
+            "username": "JackbrainAI",
+            "first_name": "SubHub",
+            "join_date": "2026-05-07 13:33:06"
+        }
+    }
 }
