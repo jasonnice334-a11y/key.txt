@@ -4,7 +4,14 @@
             "points": 10
         }
     },
-    "generated_keys": {},
+    "generated_keys": {
+        "u0_a32510325@2026-05-08 13:33:29": {
+            "generated_by": "1981611974",
+            "time": "2026-05-07 13:33:29",
+            "real_uid": "u0_a32510325",
+            "expire_date": "2026-05-08 13:33:29"
+        }
+    },
     "users": {},
     "banned": [],
     "all_users": {
